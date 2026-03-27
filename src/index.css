@@ -351,3 +351,39 @@ textarea.form-control {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+
+/* Markdown Rendering Customizations */
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  color: #fff;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.markdown-body h1 { font-size: 1.3rem; background: none; -webkit-text-fill-color: #fff; }
+.markdown-body h2 { font-size: 1.15rem; }
+.markdown-body h3 { font-size: 1.05rem; }
+
+.markdown-body p {
+  margin-bottom: 0.85rem;
+  white-space: normal; /* Override pre-wrap for true markdown paragraphs */
+}
+
+.markdown-body ul, .markdown-body ol {
+  padding-left: 1.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.markdown-body li {
+  margin-bottom: 0.25rem;
+}
+
+.markdown-body a {
+  color: var(--secondary);
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}

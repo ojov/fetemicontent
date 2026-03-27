@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 
-function PublishView({ draft, onBack, username }) {
+function PublishView({ draft, onBack, onStartOver, username }) {
   const [editedTitle, setEditedTitle] = useState(draft.title || '');
   const [editedContent, setEditedContent] = useState(draft.content || '');
   const [destination, setDestination] = useState('linkedin');
+  const [action, setAction] = useState('publish');
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishStatus, setPublishStatus] = useState(null); // 'success' | 'error' | null
   const [errorMessage, setErrorMessage] = useState('');
@@ -15,15 +16,17 @@ function PublishView({ draft, onBack, username }) {
 
     const payload = {
       username,
+      draftId: draft.id || draft.draftId || 'unknown_id',
       originalDraft: draft,
       title: editedTitle,
       content: editedContent,
-      destination: destination
+      destination: destination,
+      action: action
     };
 
     try {
-      // Placeholder webhook URL - update this to your actual n8n publish webhook
-      const response = await fetch('/api/webhook-test/publish-content', {
+      // Connect to the new Draft Selection Webhook
+      const response = await fetch('/api/webhook-test/draft-selection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -57,12 +60,25 @@ function PublishView({ draft, onBack, username }) {
           <div style={{ fontSize: '4rem', color: 'var(--success)' }}>✓</div>
           <h3 style={{ marginTop: '1rem' }}>Successfully sent to {destination === 'linkedin' ? 'LinkedIn' : 'Newsletter'}!</h3>
           <p style={{ color: 'var(--text-muted)' }}>Your content has been queued for publishing.</p>
-          <button className="btn btn-primary" style={{ marginTop: '2rem' }} onClick={onBack}>
+          <button className="btn btn-primary" style={{ marginTop: '2rem' }} onClick={onStartOver}>
             Return to Dashboard
           </button>
         </div>
       ) : (
         <>
+          <div className="form-group">
+            <label className="form-label">Action to Carry Out</label>
+            <select 
+              className="form-control" 
+              value={action} 
+              onChange={(e) => setAction(e.target.value)}
+              disabled={isPublishing}
+            >
+              <option value="publish">Publish Now</option>
+              <option value="schedule">Schedule for Later</option>
+            </select>
+          </div>
+
           <div className="form-group">
             <label className="form-label">Publishing Destination</label>
             <select 
@@ -109,7 +125,7 @@ function PublishView({ draft, onBack, username }) {
             onClick={handlePublish}
             disabled={isPublishing || !editedContent.trim()}
           >
-            {isPublishing ? 'Publishing...' : `Publish to ${destination === 'linkedin' ? 'LinkedIn' : 'Newsletter'}`}
+            {isPublishing ? 'Processing...' : `${action === 'schedule' ? 'Schedule for' : 'Publish to'} ${destination === 'linkedin' ? 'LinkedIn' : 'Newsletter'}`}
           </button>
         </>
       )}

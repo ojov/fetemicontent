@@ -1,4 +1,5 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
 
 function DraftCard({ draft, isSelected, onSelect, onCopy }) {
   return (
@@ -9,8 +10,10 @@ function DraftCard({ draft, isSelected, onSelect, onCopy }) {
         </div>
       )}
       <h3>{draft.title || 'Generated Draft'}</h3>
-      <div className="draft-content">
-        {draft.preview ? draft.preview : draft.content}
+      <div className="draft-content markdown-body">
+        <ReactMarkdown>
+          {draft.preview ? draft.preview : draft.content}
+        </ReactMarkdown>
       </div>
       <div style={{ marginTop: 'auto', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         <button 

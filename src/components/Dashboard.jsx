@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import DraftCard from './DraftCard';
 import PublishView from './PublishView';
+import LogsView from './LogsView';
 
 // The messages to cycle through while polling
 const LOADING_MESSAGES = [
@@ -23,6 +24,7 @@ function Dashboard({ username, onLogout }) {
   const [drafts, setDrafts] = useState([]);
   const [selectedDraft, setSelectedDraft] = useState(null);
   const [error, setError] = useState('');
+  const [showLogs, setShowLogs] = useState(false);
 
   // Cycle the loading message every 12 seconds
   useEffect(() => {
@@ -82,7 +84,7 @@ function Dashboard({ username, onLogout }) {
 
       let initResponse;
       try {
-        initResponse = await fetch('/api/webhook-test/content-input', {
+        initResponse = await fetch('/api/webhook/content-input', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -131,17 +133,21 @@ function Dashboard({ username, onLogout }) {
 
       let isDone = false;
       let pollCount = 0;
-      const MAX_POLLS = 60; // 60 polls @ 6 seconds = up to 6 minutes waiting
-      const POLLING_INTERVAL_MS = 6000;
+      const MAX_POLLS = 40; // With exponential backoff, 40 max polls gives plenty of time
+      let currentIntervalMs = 3000; // Start at 3 seconds
+      const MAX_INTERVAL_MS = 15000; // Cap polling interval at 15 seconds
 
       while (!isDone && pollCount < MAX_POLLS) {
-        // Wait 6 seconds before asking n8n for an status update
-        await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+        // Wait using the current exponentially backed-off interval
+        await new Promise((resolve) => setTimeout(resolve, currentIntervalMs));
         pollCount++;
+        
+        // Increase the interval for the next iteration (multiply by 1.5)
+        currentIntervalMs = Math.min(currentIntervalMs * 1.5, MAX_INTERVAL_MS);
 
         try {
           // This calls your SECOND n8n Webhook which handles the status check
-          const pollResponse = await fetch('/api/webhook-test/poll-job-status', {
+          const pollResponse = await fetch('/api/webhook/poll-job-status', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -200,7 +206,11 @@ function Dashboard({ username, onLogout }) {
         <button onClick={onLogout} className="btn btn-outline">Logout</button>
       </header>
 
-      {!selectedDraft && (
+      {showLogs && (
+        <LogsView onBack={() => setShowLogs(false)} />
+      )}
+
+      {!showLogs && !selectedDraft && drafts.length === 0 && (
         <div className="card card-lg fade-in" style={{ margin: '0 auto' }}>
           <h2>Create New Content</h2>
         <form onSubmit={handleSubmit}>
@@ -231,7 +241,16 @@ function Dashboard({ username, onLogout }) {
             />
           </div>
 
-          {error && <div className="error-text mb-4">{error}</div>}
+          {error && (
+            <div className="error-text mb-4" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
+              <span><strong>Error:</strong> {error}</span>
+              {error.includes('timed out') && (
+                <button type="button" className="btn btn-outline" style={{ marginTop: '0.5rem', borderColor: 'var(--primary)', color: 'var(--primary)' }} onClick={() => setShowLogs(true)}>
+                  View Generation Logs
+                </button>
+              )}
+            </div>
+          )}
 
           <button 
             type="submit" 
@@ -244,7 +263,7 @@ function Dashboard({ username, onLogout }) {
       </div>
       )}
 
-      {loading && (
+      {!showLogs && loading && (
         <div className="loading-container fade-in">
           <div className="spinner"></div>
           {/* Dynamically rotating loading messages hidden from the actual network state */}
@@ -255,9 +274,13 @@ function Dashboard({ username, onLogout }) {
         </div>
       )}
 
-      {!selectedDraft && !loading && drafts.length > 0 && (
+      {!showLogs && !selectedDraft && !loading && drafts.length > 0 && (
         <div className="fade-in">
-          <h2 style={{ marginTop: '3rem', textAlign: 'center' }}>Generated Drafts</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '3rem', marginBottom: '2rem' }}>
+            <button className="btn btn-outline" onClick={() => { setDrafts([]); setContent(''); }}>← Start Over</button>
+            <h2 style={{ margin: 0, textAlign: 'center', flex: 1 }}>Generated Drafts</h2>
+            <div style={{ width: '120px' }}></div> {/* Spacer for centering flex */}
+          </div>
           <div className="drafts-grid">
             {drafts.map((draft, idx) => (
               <DraftCard 
@@ -272,12 +295,17 @@ function Dashboard({ username, onLogout }) {
         </div>
       )}
 
-      {selectedDraft && (
+      {!showLogs && selectedDraft && (
         <div style={{ marginTop: '2rem' }}>
           <PublishView 
             draft={selectedDraft} 
             username={username}
             onBack={() => setSelectedDraft(null)} 
+            onStartOver={() => {
+              setSelectedDraft(null);
+              setDrafts([]);
+              setContent('');
+            }}
           />
         </div>
       )}

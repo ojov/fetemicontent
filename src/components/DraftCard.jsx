@@ -3,9 +3,14 @@ import React from 'react';
 function DraftCard({ draft, isSelected, onSelect, onCopy }) {
   return (
     <div className={`card draft-card fade-in ${isSelected ? 'selected' : ''}`}>
+      {draft.angle && (
+        <div style={{ marginBottom: '0.5rem' }}>
+          <span className="badge">{draft.angle} Angle</span>
+        </div>
+      )}
       <h3>{draft.title || 'Generated Draft'}</h3>
       <div className="draft-content">
-        {draft.content}
+        {draft.preview ? draft.preview : draft.content}
       </div>
       <div style={{ marginTop: 'auto', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         <button 

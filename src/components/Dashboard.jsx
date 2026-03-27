@@ -82,7 +82,7 @@ function Dashboard({ username, onLogout }) {
 
       let initResponse;
       try {
-        initResponse = await fetch('https://cohort2pod4.app.n8n.cloud/webhook-test/content-input', {
+        initResponse = await fetch('/api/webhook-test/content-input', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -141,7 +141,7 @@ function Dashboard({ username, onLogout }) {
 
         try {
           // This calls your SECOND n8n Webhook which handles the status check
-          const pollResponse = await fetch('https://cohort2pod4.app.n8n.cloud/webhook-test/poll-job-status', {
+          const pollResponse = await fetch('/api/webhook-test/poll-job-status', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -154,7 +154,9 @@ function Dashboard({ username, onLogout }) {
             console.log('Poll response:', pollData);
           
             // Webhook 2 should return { "status": "pending" } OR { "status": "done", "drafts": [...] }
-            if (pollData && pollData.status === 'done' && Array.isArray(pollData.drafts) && pollData.drafts.length > 0) {
+            // Support n8n payload format where status="success" and jobStatus="done"
+            const isFinished = pollData.status === 'done' || pollData.status === 'success' || (pollData.jobStatus && pollData.jobStatus.includes('done'));
+            if (pollData && isFinished && Array.isArray(pollData.drafts) && pollData.drafts.length > 0) {
               setDrafts(pollData.drafts);
               isDone = true;
               break;

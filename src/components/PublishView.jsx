@@ -23,7 +23,7 @@ function PublishView({ draft, onBack, username }) {
 
     try {
       // Placeholder webhook URL - update this to your actual n8n publish webhook
-      const response = await fetch('https://cohort2pod4.app.n8n.cloud/webhook-test/publish-content', {
+      const response = await fetch('/api/webhook-test/publish-content', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

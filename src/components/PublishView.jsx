@@ -1,31 +1,45 @@
 import React, { useState } from 'react';
+import useStickyState from '../utils/useStickyState';
 
 function PublishView({ draft, onBack, onStartOver, username }) {
-  const [editedTitle, setEditedTitle] = useState(draft.title || '');
-  const [editedContent, setEditedContent] = useState(draft.content || '');
-  const [destination, setDestination] = useState('linkedin');
-  const [action, setAction] = useState('publish');
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publishStatus, setPublishStatus] = useState(null); // 'success' | 'error' | null
+  const dId = draft.id || draft.draftId || 'unknown';
+
+  // Phase 1 (Adaptation) states
+  const [step, setStep] = useStickyState('adapt', `fetemi_pv_step_${dId}`); // 'adapt' | 'review'
+  const [editedTitle, setEditedTitle] = useStickyState(draft.title || '', `fetemi_pv_title_${dId}`);
+  const [editedContent, setEditedContent] = useStickyState(draft.content || '', `fetemi_pv_content_${dId}`);
+  const [intendedAction, setIntendedAction] = useStickyState('publish', `fetemi_pv_action_${dId}`);
+  
+  // Phase 2 (Review) states
+  const [adaptedLinkedIn, setAdaptedLinkedIn] = useStickyState('', `fetemi_pv_ali_${dId}`);
+  const [adaptedNewsletter, setAdaptedNewsletter] = useStickyState('', `fetemi_pv_anl_${dId}`);
+  const [linkedinAdaptationId, setLinkedinAdaptationId] = useStickyState(null, `fetemi_pv_laid_${dId}`);
+  const [newsletterAdaptationId, setNewsletterAdaptationId] = useStickyState(null, `fetemi_pv_naid_${dId}`);
+  const [newsletterSubject, setNewsletterSubject] = useStickyState('', `fetemi_pv_nsub_${dId}`);
+  const [newsletterPreview, setNewsletterPreview] = useStickyState('', `fetemi_pv_nprev_${dId}`);
+  const [activeTab, setActiveTab] = useStickyState('linkedin', `fetemi_pv_tab_${dId}`); // 'linkedin' | 'newsletter'
+
+  // Loading & Error states
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [status, setStatus] = useState(null); // 'success' | 'error' | null
   const [errorMessage, setErrorMessage] = useState('');
 
-  const handlePublish = async () => {
-    setIsPublishing(true);
-    setPublishStatus(null);
+  const handleAdapt = async () => {
+    setIsProcessing(true);
+    setStatus(null);
     setErrorMessage('');
 
     const payload = {
       username,
+      jobId: draft.jobId || 'unknown_job',
       draftId: draft.id || draft.draftId || 'unknown_id',
-      originalDraft: draft,
       title: editedTitle,
       content: editedContent,
-      destination: destination,
-      action: action
+      action: intendedAction // 'publish' or 'schedule'
     };
 
     try {
-      // Connect to the new Draft Selection Webhook
+      // 1. Send the draft to be adapted for platforms
       const response = await fetch('/api/webhook-test/draft-selection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,98 +49,256 @@ function PublishView({ draft, onBack, onStartOver, username }) {
       if (!response.ok) {
         throw new Error(`Server returned ${response.status}`);
       }
+      console.log(response);
       
-      setPublishStatus('success');
+      const data = await response.json();
+      console.log(data);
+      
+      let linkedinData = 'No LinkedIn adaptation returned.';
+      let newsletterData = 'No Newsletter adaptation returned.';
+
+      // Support direct array, or nested array inside { adaptations: [...] }
+      const adaptationsArray = Array.isArray(data) ? data : (data?.adaptations || []);
+
+      if (adaptationsArray.length > 0) {
+        const li = adaptationsArray.find(d => d.platform === 'linkedin');
+        const nl = adaptationsArray.find(d => d.platform === 'newsletter');
+
+        if (li) {
+          if (li.id) setLinkedinAdaptationId(li.id);
+          if (li.content) linkedinData = li.content;
+        }
+        
+        if (nl) {
+          if (nl.id) setNewsletterAdaptationId(nl.id);
+          if (nl.title || nl.subject) setNewsletterSubject(nl.title || nl.subject);
+          if (nl.preview_text) setNewsletterPreview(nl.preview_text);
+          if (nl.content) newsletterData = nl.content;
+        }
+      } else {
+        // Fallback just in case it's in the old flat format
+        if (data?.linkedin) linkedinData = data.linkedin;
+        if (data?.newsletter) newsletterData = data.newsletter;
+      }
+      
+      setAdaptedLinkedIn(linkedinData);
+      setAdaptedNewsletter(newsletterData);
+      
+      // Move to review step
+      setStep('review');
     } catch (err) {
       console.error(err);
-      setPublishStatus('error');
-      setErrorMessage(err.message || 'Failed to publish content.');
+      setStatus('error');
+      setErrorMessage(err.message || 'Failed to adapt content.');
     } finally {
-      setIsPublishing(false);
+      setIsProcessing(false);
+    }
+  };
+
+  const handleFinalAction = async (finalActionType) => {
+    // finalActionType: 'publish_immediately' | 'schedule' | 'save'
+    setIsProcessing(true);
+    setStatus(null);
+    setErrorMessage('');
+
+    // Send the currently active platform and its adaptation
+    const payload = {
+      username,
+      jobId: draft.jobId || 'unknown_job',
+      draftId: draft.id || draft.draftId || 'unknown_id',
+      adaptationId: activeTab === 'linkedin' ? linkedinAdaptationId : newsletterAdaptationId,
+      platform: activeTab,
+      final_draft: activeTab === 'linkedin' ? adaptedLinkedIn : adaptedNewsletter,
+      action: finalActionType
+    };
+
+    if (activeTab === 'newsletter') {
+      payload.subject = newsletterSubject;
+      payload.preview_text = newsletterPreview;
+    }
+
+    try {
+      // Hit the n8n publish-decision webhook
+      const response = await fetch('/api/webhook-test/publish-decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}`);
+      }
+      
+      setStatus('success');
+    } catch (err) {
+      console.error(err);
+      setStatus('error');
+      setErrorMessage(err.message || 'Failed to complete action.');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   return (
     <div className="card card-lg fade-in" style={{ margin: '0 auto', width: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-        <h2>Preview & Publish</h2>
-        <button className="btn btn-outline" onClick={onBack} disabled={isPublishing}>
-          ← Back to Drafts
+        <h2>{step === 'adapt' ? 'Adapt Content' : 'Review Adaptations'}</h2>
+        <button className="btn btn-outline" onClick={step === 'review' ? () => { setStep('adapt'); setStatus(null); } : onBack} disabled={isProcessing}>
+          ← {step === 'review' ? 'Back to Editor' : 'Back to Drafts'}
         </button>
       </div>
 
-      {publishStatus === 'success' ? (
+      {status === 'success' ? (
         <div style={{ textAlign: 'center', padding: '3rem 0' }}>
           <div style={{ fontSize: '4rem', color: 'var(--success)' }}>✓</div>
-          <h3 style={{ marginTop: '1rem' }}>Successfully sent to {destination === 'linkedin' ? 'LinkedIn' : 'Newsletter'}!</h3>
-          <p style={{ color: 'var(--text-muted)' }}>Your content has been queued for publishing.</p>
+          <h3 style={{ marginTop: '1rem' }}>Success!</h3>
+          <p style={{ color: 'var(--text-muted)' }}>Action completed for {activeTab === 'linkedin' ? 'LinkedIn' : 'Newsletter'}.</p>
           <button className="btn btn-primary" style={{ marginTop: '2rem' }} onClick={onStartOver}>
             Return to Dashboard
           </button>
         </div>
       ) : (
         <>
-          <div className="form-group">
-            <label className="form-label">Action to Carry Out</label>
-            <select 
-              className="form-control" 
-              value={action} 
-              onChange={(e) => setAction(e.target.value)}
-              disabled={isPublishing}
-            >
-              <option value="publish">Publish Now</option>
-              <option value="schedule">Schedule for Later</option>
-            </select>
-          </div>
+          {step === 'adapt' && (
+            <div className="fade-in">
+              <div className="form-group">
+                <label className="form-label">Intended Action</label>
+                <select 
+                  className="form-control" 
+                  value={intendedAction} 
+                  onChange={(e) => setIntendedAction(e.target.value)}
+                  disabled={isProcessing}
+                >
+                  <option value="publish">Publish</option>
+                  <option value="schedule">Schedule</option>
+                </select>
+                <small style={{ color: 'var(--text-muted)', display: 'block', marginTop: '0.4rem' }}>
+                  The AI uses this to adapt phrasing appropriately.
+                </small>
+              </div>
 
-          <div className="form-group">
-            <label className="form-label">Publishing Destination</label>
-            <select 
-              className="form-control" 
-              value={destination} 
-              onChange={(e) => setDestination(e.target.value)}
-              disabled={isPublishing}
-            >
-              <option value="linkedin">LinkedIn</option>
-              <option value="newsletter">Newsletter (Email)</option>
-            </select>
-          </div>
+              <div className="form-group">
+                <label className="form-label">Draft Title</label>
+                <input 
+                  type="text"
+                  className="form-control" 
+                  value={editedTitle} 
+                  onChange={(e) => setEditedTitle(e.target.value)}
+                  disabled={isProcessing}
+                />
+              </div>
 
-          <div className="form-group">
-            <label className="form-label">Draft Title</label>
-            <input 
-              type="text"
-              className="form-control" 
-              value={editedTitle} 
-              onChange={(e) => setEditedTitle(e.target.value)}
-              disabled={isPublishing}
-            />
-          </div>
+              <div className="form-group">
+                <label className="form-label">Base Content (Edit before adapting)</label>
+                <textarea 
+                  className="form-control" 
+                  style={{ minHeight: '300px' }}
+                  value={editedContent} 
+                  onChange={(e) => setEditedContent(e.target.value)}
+                  disabled={isProcessing}
+                />
+              </div>
 
-          <div className="form-group">
-            <label className="form-label">Draft Content (You can edit this before publishing)</label>
-            <textarea 
-              className="form-control" 
-              style={{ minHeight: '300px' }}
-              value={editedContent} 
-              onChange={(e) => setEditedContent(e.target.value)}
-              disabled={isPublishing}
-            />
-          </div>
+              {status === 'error' && (
+                <div className="error-text mb-4">
+                  <strong>Error:</strong> {errorMessage}
+                </div>
+              )}
 
-          {publishStatus === 'error' && (
-            <div className="error-text mb-4">
-              <strong>Error:</strong> {errorMessage}
+              <button 
+                className="btn btn-primary w-full" 
+                onClick={handleAdapt}
+                disabled={isProcessing || !editedContent.trim()}
+              >
+                {isProcessing ? 'Adapting for platforms...' : 'Adapt Content'}
+              </button>
             </div>
           )}
 
-          <button 
-            className="btn btn-primary w-full" 
-            onClick={handlePublish}
-            disabled={isPublishing || !editedContent.trim()}
-          >
-            {isPublishing ? 'Processing...' : `${action === 'schedule' ? 'Schedule for' : 'Publish to'} ${destination === 'linkedin' ? 'LinkedIn' : 'Newsletter'}`}
-          </button>
+          {step === 'review' && (
+            <div className="fade-in">
+              <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--glass-border)', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
+                <button 
+                  className={`btn ${activeTab === 'linkedin' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ flex: 1 }}
+                  onClick={() => setActiveTab('linkedin')}
+                >
+                  LinkedIn
+                </button>
+                <button 
+                  className={`btn ${activeTab === 'newsletter' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ flex: 1 }}
+                  onClick={() => setActiveTab('newsletter')}
+                >
+                  Newsletter
+                </button>
+              </div>
+
+              {activeTab === 'newsletter' && (
+                <>
+                  <div className="form-group mb-4" style={{ marginBottom: '1rem' }}>
+                    <label className="form-label">Email Subject</label>
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      value={newsletterSubject} 
+                      onChange={(e) => setNewsletterSubject(e.target.value)} 
+                      disabled={isProcessing} 
+                    />
+                  </div>
+                  <div className="form-group mb-4" style={{ marginBottom: '1rem' }}>
+                    <label className="form-label">Preview Text</label>
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      value={newsletterPreview} 
+                      onChange={(e) => setNewsletterPreview(e.target.value)} 
+                      disabled={isProcessing} 
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="form-group">
+                <label className="form-label">
+                  Review & Finalize {activeTab === 'linkedin' ? 'LinkedIn' : 'Newsletter'} Post
+                </label>
+                <textarea 
+                  className="form-control" 
+                  style={{ minHeight: '350px' }}
+                  value={activeTab === 'linkedin' ? adaptedLinkedIn : adaptedNewsletter} 
+                  onChange={(e) => {
+                    if (activeTab === 'linkedin') setAdaptedLinkedIn(e.target.value);
+                    else setAdaptedNewsletter(e.target.value);
+                  }}
+                  disabled={isProcessing}
+                />
+              </div>
+
+              {status === 'error' && (
+                <div className="error-text mb-4">
+                  <strong>Error:</strong> {errorMessage}
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                <button 
+                  className="btn btn-outline" 
+                  onClick={() => handleFinalAction('save')}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? 'Processing...' : 'Save Adaptation'}
+                </button>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={() => handleFinalAction(intendedAction === 'publish' ? 'publish_immediately' : 'schedule')}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? 'Processing...' : (intendedAction === 'publish' ? 'Publish Immediately' : 'Schedule Now')}
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

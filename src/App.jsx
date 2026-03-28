@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React from 'react';
+import useStickyState from './utils/useStickyState';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [username, setUsername] = useState('');
+  const [isLoggedIn, setIsLoggedIn] = useStickyState(false, 'fetemi_isLoggedIn');
+  const [username, setUsername] = useStickyState('', 'fetemi_username');
 
   const handleLogin = (user) => {
     setUsername(user);

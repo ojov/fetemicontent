@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import useStickyState from '../utils/useStickyState';
 import DraftCard from './DraftCard';
 import PublishView from './PublishView';
 import LogsView from './LogsView';
@@ -17,14 +18,14 @@ const LOADING_MESSAGES = [
 ];
 
 function Dashboard({ username, onLogout }) {
-  const [type, setType] = useState('idea');
-  const [content, setContent] = useState('');
+  const [type, setType] = useStickyState('idea', 'fetemi_dash_type');
+  const [content, setContent] = useStickyState('', 'fetemi_dash_content');
   const [loading, setLoading] = useState(false);
   const [loadingMessageIdx, setLoadingMessageIdx] = useState(0);
-  const [drafts, setDrafts] = useState([]);
-  const [selectedDraft, setSelectedDraft] = useState(null);
+  const [drafts, setDrafts] = useStickyState([], 'fetemi_dash_drafts');
+  const [selectedDraft, setSelectedDraft] = useStickyState(null, 'fetemi_dash_selectedDraft');
   const [error, setError] = useState('');
-  const [showLogs, setShowLogs] = useState(false);
+  const [showLogs, setShowLogs] = useStickyState(false, 'fetemi_dash_showLogs');
 
   // Cycle the loading message every 12 seconds
   useEffect(() => {
@@ -38,7 +39,7 @@ function Dashboard({ username, onLogout }) {
           }
           return prev; // Stay on the last message if taking longer
         });
-      }, 12000); 
+      }, 12000);
     }
     return () => {
       if (interval) clearInterval(interval);
@@ -48,7 +49,7 @@ function Dashboard({ username, onLogout }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const trimmedContent = content.trim();
-    
+
     if (!trimmedContent) {
       setError('Input must not be empty');
       return;
@@ -117,18 +118,19 @@ function Dashboard({ username, onLogout }) {
       }
 
       // If n8n happens to be fast enough to respond immediately with drafts, skip polling:
+      const initialJobId = initData?.jobId || initData?.id || initData?.sessionId;
       if (initData && initData.status === 'done' && Array.isArray(initData.drafts) && initData.drafts.length > 0) {
-        setDrafts(initData.drafts);
+        setDrafts(initData.drafts.map(d => ({ ...d, jobId: initialJobId })));
         setLoading(false);
         return;
       }
 
       // 2. Polling Logic
       // We expect the first webhook to return a jobId
-      const jobId = initData?.jobId || initData?.id || initData?.sessionId;
-      
+      const jobId = initialJobId;
+
       if (!jobId) {
-         throw new Error('No job ID returned from the server to track this request.');
+        throw new Error('No job ID returned from the server to track this request.');
       }
 
       let isDone = false;
@@ -141,7 +143,7 @@ function Dashboard({ username, onLogout }) {
         // Wait using the current exponentially backed-off interval
         await new Promise((resolve) => setTimeout(resolve, currentIntervalMs));
         pollCount++;
-        
+
         // Increase the interval for the next iteration (multiply by 1.5)
         currentIntervalMs = Math.min(currentIntervalMs * 1.5, MAX_INTERVAL_MS);
 
@@ -154,16 +156,16 @@ function Dashboard({ username, onLogout }) {
             },
             body: JSON.stringify({ jobId })
           });
-          
+
           if (pollResponse.ok) {
             const pollData = await pollResponse.json();
             console.log('Poll response:', pollData);
-          
+
             // Webhook 2 should return { "status": "pending" } OR { "status": "done", "drafts": [...] }
             // Support n8n payload format where status="success" and jobStatus="done"
             const isFinished = pollData.status === 'done' || pollData.status === 'success' || (pollData.jobStatus && pollData.jobStatus.includes('done'));
             if (pollData && isFinished && Array.isArray(pollData.drafts) && pollData.drafts.length > 0) {
-              setDrafts(pollData.drafts);
+              setDrafts(pollData.drafts.map(d => ({ ...d, jobId })));
               isDone = true;
               break;
             } else if (pollData && pollData.error) {
@@ -172,8 +174,8 @@ function Dashboard({ username, onLogout }) {
             }
           }
         } catch (pollErr) {
-           console.warn(`Polling attempt ${pollCount} failed (expected if webhook drops connection):`, pollErr);
-           // We do not throw here so the loop can retry next time, unless it's a fatal application error.
+          console.warn(`Polling attempt ${pollCount} failed (expected if webhook drops connection):`, pollErr);
+          // We do not throw here so the loop can retry next time, unless it's a fatal application error.
         }
       }
 
@@ -201,7 +203,7 @@ function Dashboard({ username, onLogout }) {
       <header className="header">
         <div>
           <h1 style={{ marginBottom: 0 }}>Fetemi Content Studios</h1>
-          <p style={{ color: 'var(--text-muted)' }}>Logged in as <strong style={{color: '#fff'}}>{username}</strong></p>
+          <p style={{ color: 'var(--text-muted)' }}>Logged in as <strong style={{ color: '#fff' }}>{username}</strong></p>
         </div>
         <button onClick={onLogout} className="btn btn-outline">Logout</button>
       </header>
@@ -213,54 +215,54 @@ function Dashboard({ username, onLogout }) {
       {!showLogs && !selectedDraft && drafts.length === 0 && (
         <div className="card card-lg fade-in" style={{ margin: '0 auto' }}>
           <h2>Create New Content</h2>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Input Type</label>
-            <select 
-              className="form-control" 
-              value={type} 
-              onChange={(e) => setType(e.target.value)}
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label className="form-label">Input Type</label>
+              <select
+                className="form-control"
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                disabled={loading}
+              >
+                <option value="idea">Idea</option>
+                <option value="url">URL</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">
+                {type === 'idea' ? 'Content Idea' : 'Content URL'}
+              </label>
+              <textarea
+                className="form-control"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder={type === 'idea' ? 'Enter your content idea...' : 'Paste a URL...'}
+                disabled={loading}
+                required
+              />
+            </div>
+
+            {error && (
+              <div className="error-text mb-4" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
+                <span><strong>Error:</strong> {error}</span>
+                {error.includes('timed out') && (
+                  <button type="button" className="btn btn-outline" style={{ marginTop: '0.5rem', borderColor: 'var(--primary)', color: 'var(--primary)' }} onClick={() => setShowLogs(true)}>
+                    View Generation Logs
+                  </button>
+                )}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="btn btn-primary w-full"
               disabled={loading}
             >
-              <option value="idea">Idea</option>
-              <option value="url">URL</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">
-              {type === 'idea' ? 'Content Idea' : 'Content URL'}
-            </label>
-            <textarea 
-              className="form-control" 
-              value={content} 
-              onChange={(e) => setContent(e.target.value)} 
-              placeholder={type === 'idea' ? 'Enter your content idea...' : 'Paste a URL...'}
-              disabled={loading}
-              required
-            />
-          </div>
-
-          {error && (
-            <div className="error-text mb-4" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
-              <span><strong>Error:</strong> {error}</span>
-              {error.includes('timed out') && (
-                <button type="button" className="btn btn-outline" style={{ marginTop: '0.5rem', borderColor: 'var(--primary)', color: 'var(--primary)' }} onClick={() => setShowLogs(true)}>
-                  View Generation Logs
-                </button>
-              )}
-            </div>
-          )}
-
-          <button 
-            type="submit" 
-            className="btn btn-primary w-full" 
-            disabled={loading}
-          >
-            {loading ? 'Processing...' : 'Generate Drafts'}
-          </button>
-        </form>
-      </div>
+              {loading ? 'Processing...' : 'Generate Drafts'}
+            </button>
+          </form>
+        </div>
       )}
 
       {!showLogs && loading && (
@@ -283,8 +285,8 @@ function Dashboard({ username, onLogout }) {
           </div>
           <div className="drafts-grid">
             {drafts.map((draft, idx) => (
-              <DraftCard 
-                key={idx} 
+              <DraftCard
+                key={idx}
                 draft={draft}
                 isSelected={selectedDraft === draft}
                 onSelect={setSelectedDraft}
@@ -297,10 +299,10 @@ function Dashboard({ username, onLogout }) {
 
       {!showLogs && selectedDraft && (
         <div style={{ marginTop: '2rem' }}>
-          <PublishView 
-            draft={selectedDraft} 
+          <PublishView
+            draft={selectedDraft}
             username={username}
-            onBack={() => setSelectedDraft(null)} 
+            onBack={() => setSelectedDraft(null)}
             onStartOver={() => {
               setSelectedDraft(null);
               setDrafts([]);

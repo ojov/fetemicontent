@@ -43,7 +43,8 @@ function PublishView({ draft, onBack, onStartOver, username }) {
 
     try {
       // 1. Send the draft to be adapted for platforms
-      const n8nBaseUrl = import.meta.env.VITE_N8N_BASE_URL || '';
+      const n8nBaseUrl = import.meta.env.VITE_N8N_BASE_URL;
+      if (!n8nBaseUrl) throw new Error('VITE_N8N_BASE_URL environment variable is not defined.');
       const response = await fetch(`${n8nBaseUrl}/webhook/draft-selection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -215,7 +216,8 @@ function PublishView({ draft, onBack, onStartOver, username }) {
       }
 
       // Hit the n8n publish-decision webhook
-      const n8nBaseUrl = import.meta.env.VITE_N8N_BASE_URL || '';
+      const n8nBaseUrl = import.meta.env.VITE_N8N_BASE_URL;
+      if (!n8nBaseUrl) throw new Error('VITE_N8N_BASE_URL environment variable is not defined.');
       const response = await fetch(`${n8nBaseUrl}/webhook/publish-decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -85,7 +85,11 @@ function Dashboard({ username, onLogout }) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
 
-      const n8nBaseUrl = import.meta.env.VITE_N8N_BASE_URL || '';
+      const n8nBaseUrl = import.meta.env.VITE_N8N_BASE_URL;
+      
+      if (!n8nBaseUrl) {
+        throw new Error('VITE_N8N_BASE_URL environment variable is not defined.');
+      }
 
       let initResponse;
       try {

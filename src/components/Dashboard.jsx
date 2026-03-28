@@ -3,6 +3,7 @@ import useStickyState from '../utils/useStickyState';
 import DraftCard from './DraftCard';
 import PublishView from './PublishView';
 import LogsView from './LogsView';
+import AdminDashboard from './AdminDashboard';
 
 // The messages to cycle through while polling
 const LOADING_MESSAGES = [
@@ -26,6 +27,7 @@ function Dashboard({ username, onLogout }) {
   const [selectedDraft, setSelectedDraft] = useStickyState(null, 'fetemi_dash_selectedDraft');
   const [error, setError] = useState('');
   const [showLogs, setShowLogs] = useStickyState(false, 'fetemi_dash_showLogs');
+  const [showAdmin, setShowAdmin] = useStickyState(false, 'fetemi_dash_showAdmin');
 
   // Cycle the loading message every 12 seconds
   useEffect(() => {
@@ -83,9 +85,11 @@ function Dashboard({ username, onLogout }) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
 
+      const n8nBaseUrl = import.meta.env.VITE_N8N_BASE_URL || '';
+
       let initResponse;
       try {
-        initResponse = await fetch('/api/webhook/content-input', {
+        initResponse = await fetch(`${n8nBaseUrl}/webhook/content-input`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -149,7 +153,7 @@ function Dashboard({ username, onLogout }) {
 
         try {
           // This calls your SECOND n8n Webhook which handles the status check
-          const pollResponse = await fetch('/api/webhook/poll-job-status', {
+          const pollResponse = await fetch(`${n8nBaseUrl}/webhook/poll-job-status`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -205,14 +209,22 @@ function Dashboard({ username, onLogout }) {
           <h1 style={{ marginBottom: 0 }}>Fetemi Content Studios</h1>
           <p style={{ color: 'var(--text-muted)' }}>Logged in as <strong style={{ color: '#fff' }}>{username}</strong></p>
         </div>
-        <button onClick={onLogout} className="btn btn-outline">Logout</button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button onClick={() => setShowAdmin(true)} className="btn btn-outline" style={{ display: showLogs || showAdmin ? 'none' : 'block' }}>Admin</button>
+          <button onClick={() => setShowLogs(true)} className="btn btn-outline" style={{ display: showLogs || showAdmin ? 'none' : 'block' }}>Logs</button>
+          <button onClick={onLogout} className="btn btn-outline">Logout</button>
+        </div>
       </header>
 
       {showLogs && (
         <LogsView onBack={() => setShowLogs(false)} />
       )}
 
-      {!showLogs && !selectedDraft && drafts.length === 0 && (
+      {showAdmin && (
+        <AdminDashboard onBack={() => setShowAdmin(false)} />
+      )}
+
+      {!showLogs && !showAdmin && !selectedDraft && drafts.length === 0 && (
         <div className="card card-lg fade-in" style={{ margin: '0 auto' }}>
           <h2>Create New Content</h2>
           <form onSubmit={handleSubmit}>
@@ -265,7 +277,7 @@ function Dashboard({ username, onLogout }) {
         </div>
       )}
 
-      {!showLogs && loading && (
+      {!showLogs && !showAdmin && loading && (
         <div className="loading-container fade-in">
           <div className="spinner"></div>
           {/* Dynamically rotating loading messages hidden from the actual network state */}
@@ -276,7 +288,7 @@ function Dashboard({ username, onLogout }) {
         </div>
       )}
 
-      {!showLogs && !selectedDraft && !loading && drafts.length > 0 && (
+      {!showLogs && !showAdmin && !selectedDraft && !loading && drafts.length > 0 && (
         <div className="fade-in">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '3rem', marginBottom: '2rem' }}>
             <button className="btn btn-outline" onClick={() => { setDrafts([]); setContent(''); }}>← Start Over</button>
@@ -297,7 +309,7 @@ function Dashboard({ username, onLogout }) {
         </div>
       )}
 
-      {!showLogs && selectedDraft && (
+      {!showLogs && !showAdmin && selectedDraft && (
         <div style={{ marginTop: '2rem' }}>
           <PublishView
             draft={selectedDraft}

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { supabase } from '../utils/supabase';
 import useStickyState from '../utils/useStickyState';
 
 function PublishView({ draft, onBack, onStartOver, username }) {
@@ -42,7 +43,8 @@ function PublishView({ draft, onBack, onStartOver, username }) {
 
     try {
       // 1. Send the draft to be adapted for platforms
-      const response = await fetch('/api/webhook/draft-selection', {
+      const n8nBaseUrl = import.meta.env.VITE_N8N_BASE_URL || '';
+      const response = await fetch(`${n8nBaseUrl}/webhook/draft-selection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -83,12 +85,22 @@ function PublishView({ draft, onBack, onStartOver, username }) {
           if (nl.id) setNewsletterAdaptationId(nl.id);
           if (nl.title || nl.subject) setNewsletterSubject(nl.title || nl.subject);
           if (nl.preview_text) setNewsletterPreview(nl.preview_text);
+          if (nl.emails) setNewsletterEmails(Array.isArray(nl.emails) ? nl.emails.join(', ') : nl.emails);
           if (nl.content) newsletterData = nl.content;
         }
       } else {
         // Fallback just in case it's in the old flat format
-        if (data?.linkedin) linkedinData = data.linkedin;
-        if (data?.newsletter) newsletterData = data.newsletter;
+        if (data?.linkedin) {
+          linkedinData = data.linkedin;
+          if (data?.linkedin_id) setLinkedinAdaptationId(data.linkedin_id);
+        }
+        if (data?.newsletter) {
+          newsletterData = data.newsletter;
+          if (data?.newsletter_id) setNewsletterAdaptationId(data.newsletter_id);
+          if (data?.newsletter_subject) setNewsletterSubject(data.newsletter_subject);
+          if (data?.newsletter_preview) setNewsletterPreview(data.newsletter_preview);
+          if (data?.newsletter_emails) setNewsletterEmails(Array.isArray(data.newsletter_emails) ? data.newsletter_emails.join(', ') : data.newsletter_emails);
+        }
       }
       
       setAdaptedLinkedIn(linkedinData);
@@ -118,14 +130,34 @@ function PublishView({ draft, onBack, onStartOver, username }) {
       draftId: draft.id || draft.draftId || 'unknown_id',
       adaptationId: activeTab === 'linkedin' ? linkedinAdaptationId : newsletterAdaptationId,
       platform: activeTab,
-      final_draft: activeTab === 'linkedin' ? adaptedLinkedIn : adaptedNewsletter,
+      editedContent: activeTab === 'linkedin' ? adaptedLinkedIn : adaptedNewsletter,
       action: finalActionType
     };
 
     if (activeTab === 'newsletter') {
+      const emailList = newsletterEmails.split(/[,\s\t]+/).map(e => e.trim()).filter(Boolean);
+      
+      // Basic email validation regex
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const invalidEmails = emailList.filter(email => !emailRegex.test(email));
+
+      if (finalActionType !== 'save' && emailList.length === 0) {
+        setIsProcessing(false);
+        setStatus('error');
+        setErrorMessage('Please provide at least one email address for the newsletter.');
+        return;
+      }
+
+      if (invalidEmails.length > 0) {
+        setIsProcessing(false);
+        setStatus('error');
+        setErrorMessage(`Invalid email(s) found: ${invalidEmails.join(', ')}`);
+        return;
+      }
+
       payload.subject = newsletterSubject;
       payload.preview_text = newsletterPreview;
-      payload.emails = newsletterEmails.split(',').map(e => e.trim()).filter(Boolean);
+      payload.emails = emailList;
     }
 
     if (finalActionType === 'schedule') {
@@ -133,8 +165,58 @@ function PublishView({ draft, onBack, onStartOver, username }) {
     }
 
     try {
+      if (finalActionType === 'save') {
+        const adaptationRow = {
+          draft_id: draft.id || draft.draftId || 'unknown_id',
+          platform: activeTab,
+          title: activeTab === 'newsletter' ? newsletterSubject || null : editedTitle || null,
+          preview_text: activeTab === 'newsletter' ? newsletterPreview || null : null,
+          content: activeTab === 'linkedin' ? adaptedLinkedIn : adaptedNewsletter,
+          status: 'saved',
+          updated_at: new Date().toISOString()
+        };
+
+        const adaptationId = activeTab === 'linkedin' ? linkedinAdaptationId : newsletterAdaptationId;
+
+        let saveError;
+
+        if (adaptationId) {
+          const { error } = await supabase
+            .from('adaptations')
+            .update(adaptationRow)
+            .eq('id', adaptationId);
+
+          saveError = error;
+        } else {
+          const { data, error } = await supabase
+            .from('adaptations')
+            .insert(adaptationRow)
+            .select('id')
+            .single();
+
+          if (!error && data?.id) {
+            if (activeTab === 'linkedin') {
+              setLinkedinAdaptationId(data.id);
+            } else {
+              setNewsletterAdaptationId(data.id);
+            }
+          }
+
+          saveError = error;
+        }
+
+        if (saveError) {
+          throw saveError;
+        }
+
+        setStatus('success');
+        setIsProcessing(false);
+        return;
+      }
+
       // Hit the n8n publish-decision webhook
-      const response = await fetch('/api/webhook-test/publish-decision', {
+      const n8nBaseUrl = import.meta.env.VITE_N8N_BASE_URL || '';
+      const response = await fetch(`${n8nBaseUrl}/webhook/publish-decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -280,7 +362,7 @@ function PublishView({ draft, onBack, onStartOver, username }) {
                       placeholder="e.g. subscriber1@example.com, john@doe.com"
                       disabled={isProcessing} 
                     />
-                    <small style={{ color: 'var(--text-muted)' }}>Comma-separated list of target emails.</small>
+                    <small style={{ color: 'var(--text-muted)' }}>Separated by commas, spaces, or tabs.</small>
                   </div>
                 </>
               )}

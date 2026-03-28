@@ -4,6 +4,7 @@ import DraftCard from './DraftCard';
 import PublishView from './PublishView';
 import LogsView from './LogsView';
 import AdminDashboard from './AdminDashboard';
+import { logToSupabase } from '../utils/logger';
 
 // The messages to cycle through while polling
 const LOADING_MESSAGES = [
@@ -115,13 +116,16 @@ function Dashboard({ username, onLogout }) {
         initData = await initResponse.json();
       } catch (jsonErr) {
         if (!initResponse.ok) {
-          throw new Error(`Server returned ${initResponse.status} ${initResponse.statusText}`);
+          const msg = `Server returned ${initResponse.status} ${initResponse.statusText}`;
+          await logToSupabase({ level: 'error', message: msg });
+          throw new Error(msg);
         }
         throw new Error('Server returned invalid JSON or empty response.');
       }
 
       if (!initResponse.ok) {
         const serverError = initData?.message || initData?.error || `Server returned ${initResponse.status} ${initResponse.statusText}`;
+        await logToSupabase({ level: 'error', message: serverError });
         throw new Error(serverError);
       }
 
@@ -178,8 +182,13 @@ function Dashboard({ username, onLogout }) {
               break;
             } else if (pollData && pollData.error) {
               // If the workflow failed and returned an error state
+              await logToSupabase({ level: 'error', jobId, message: pollData.error });
               throw new Error(pollData.error);
             }
+          } else {
+            const pollErrorMsg = `Polling failed with status ${pollResponse.status}`;
+            await logToSupabase({ level: 'error', jobId, message: pollErrorMsg });
+            // We still don't throw here to allow retries, but we log it.
           }
         } catch (pollErr) {
           console.warn(`Polling attempt ${pollCount} failed (expected if webhook drops connection):`, pollErr);

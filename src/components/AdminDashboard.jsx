@@ -23,7 +23,12 @@ function AdminDashboard({ onBack }) {
         .select('*');
 
       if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
+        if (statusFilter === 'published') {
+          // Case-insensitive match for published
+          query = query.ilike('status', 'published');
+        } else {
+          query = query.eq('status', statusFilter);
+        }
       }
 
       query = query.order('created_at', { ascending: dateFilter === 'asc' });
@@ -136,8 +141,8 @@ function AdminDashboard({ onBack }) {
                     </td>
                     <td style={{ padding: '1rem' }}>
                       <span className="badge" style={{ 
-                        backgroundColor: item.status === 'published' ? 'var(--success)' : 
-                                       item.status === 'scheduled' ? 'var(--secondary)' : 
+                        backgroundColor: (item.status && item.status.toLowerCase() === 'published') ? 'var(--success)' : 
+                                       (item.status && item.status.toLowerCase() === 'scheduled') ? 'var(--secondary)' : 
                                        'var(--text-muted)' 
                       }}>
                         {item.status}

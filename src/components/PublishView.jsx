@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../utils/supabase';
 import useStickyState from '../utils/useStickyState';
+import { logToSupabase } from '../utils/logger';
 
 function PublishView({ draft, onBack, onStartOver, username }) {
   const dId = draft.id || draft.draftId || 'unknown';
@@ -52,7 +53,9 @@ function PublishView({ draft, onBack, onStartOver, username }) {
       });
 
       if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
+        const errorMsg = `Server returned ${response.status} during adaptation`;
+        await logToSupabase({ level: 'error', jobId: payload.jobId, message: errorMsg });
+        throw new Error(errorMsg);
       }
       console.log(response);
       
@@ -225,7 +228,9 @@ function PublishView({ draft, onBack, onStartOver, username }) {
       });
 
       if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
+        const errorMsg = `Server returned ${response.status} during publish-decision`;
+        await logToSupabase({ level: 'error', jobId: payload.jobId, message: errorMsg });
+        throw new Error(errorMsg);
       }
       
       setStatus('success');

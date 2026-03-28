@@ -17,7 +17,9 @@ function PublishView({ draft, onBack, onStartOver, username }) {
   const [newsletterAdaptationId, setNewsletterAdaptationId] = useStickyState(null, `fetemi_pv_naid_${dId}`);
   const [newsletterSubject, setNewsletterSubject] = useStickyState('', `fetemi_pv_nsub_${dId}`);
   const [newsletterPreview, setNewsletterPreview] = useStickyState('', `fetemi_pv_nprev_${dId}`);
+  const [newsletterEmails, setNewsletterEmails] = useStickyState('', `fetemi_pv_nemails_${dId}`);
   const [activeTab, setActiveTab] = useStickyState('linkedin', `fetemi_pv_tab_${dId}`); // 'linkedin' | 'newsletter'
+  const [scheduledAt, setScheduledAt] = useStickyState('', `fetemi_pv_sch_${dId}`);
 
   // Loading & Error states
   const [isProcessing, setIsProcessing] = useState(false);
@@ -40,7 +42,7 @@ function PublishView({ draft, onBack, onStartOver, username }) {
 
     try {
       // 1. Send the draft to be adapted for platforms
-      const response = await fetch('/api/webhook-test/draft-selection', {
+      const response = await fetch('/api/webhook/draft-selection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -51,8 +53,16 @@ function PublishView({ draft, onBack, onStartOver, username }) {
       }
       console.log(response);
       
-      const data = await response.json();
-      console.log(data);
+      let data = await response.json();
+      
+      // Some n8n webhooks double-stringify their JSON bodies
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch (e) {
+          console.warn('Could not parse inner stringified JSON.');
+        }
+      }
       
       let linkedinData = 'No LinkedIn adaptation returned.';
       let newsletterData = 'No Newsletter adaptation returned.';
@@ -115,6 +125,11 @@ function PublishView({ draft, onBack, onStartOver, username }) {
     if (activeTab === 'newsletter') {
       payload.subject = newsletterSubject;
       payload.preview_text = newsletterPreview;
+      payload.emails = newsletterEmails.split(',').map(e => e.trim()).filter(Boolean);
+    }
+
+    if (finalActionType === 'schedule') {
+      payload.scheduled_at = scheduledAt ? new Date(scheduledAt).toISOString() : null;
     }
 
     try {
@@ -256,6 +271,17 @@ function PublishView({ draft, onBack, onStartOver, username }) {
                       disabled={isProcessing} 
                     />
                   </div>
+                  <div className="form-group mb-4" style={{ marginBottom: '1rem' }}>
+                    <label className="form-label">Recipient Emails</label>
+                    <textarea 
+                      className="form-control" 
+                      value={newsletterEmails} 
+                      onChange={(e) => setNewsletterEmails(e.target.value)} 
+                      placeholder="e.g. subscriber1@example.com, john@doe.com"
+                      disabled={isProcessing} 
+                    />
+                    <small style={{ color: 'var(--text-muted)' }}>Comma-separated list of target emails.</small>
+                  </div>
                 </>
               )}
 
@@ -278,6 +304,19 @@ function PublishView({ draft, onBack, onStartOver, username }) {
               {status === 'error' && (
                 <div className="error-text mb-4">
                   <strong>Error:</strong> {errorMessage}
+                </div>
+              )}
+
+              {intendedAction === 'schedule' && (
+                <div className="form-group" style={{ marginTop: '1rem', borderTop: '1px solid var(--glass-border)', paddingTop: '1rem' }}>
+                  <label className="form-label">Schedule Date & Time</label>
+                  <input 
+                    type="datetime-local" 
+                    className="form-control" 
+                    value={scheduledAt} 
+                    onChange={(e) => setScheduledAt(e.target.value)}
+                    disabled={isProcessing} 
+                  />
                 </div>
               )}
 
